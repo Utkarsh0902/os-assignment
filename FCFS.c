@@ -27,10 +27,19 @@ void checkError(int id, char proc){
 
 void* func1(void *arg){
     pthread_mutex_lock(&c1_mutex);
-    for(int i = 0 ; i< 5; i++){
-        printf("c1: %d\n", i);
-        usleep(500000); // every half second
-    }
+
+
+    unsigned long long sum =0;
+    int *n1 = (int*)arg;
+
+     for(int i=1;i<=*n1;i++) 
+    {
+        sum += (unsigned long long)i ;
+    } 
+
+    printf("C1 sum: %llu \n",sum);
+
+
     pthread_mutex_unlock(&c1_mutex);
     return NULL;
 }
@@ -38,10 +47,28 @@ void* func1(void *arg){
 
 void* func2(void *arg){
     pthread_mutex_lock(&c2_mutex);
-    for(int i = 0 ; i< 5; i++){
-        printf("c2: %d\n", i);
-        usleep(500000); // every half second
+
+
+    FILE *myFile;
+    myFile = fopen("somenumbers.txt", "r");
+     //read file into array
+    int *numberArray =(int*) malloc(sizeof(int)*1000000);
+    int i;
+    int *n2 = (int*)arg;
+    for (i = 0; i < *n2; i++)
+    {
+        fscanf(myFile, "%d", &numberArray[i]);
+        if(numberArray[i]<1 || numberArray[i]>1000000){
+            perror("Number out of bounds.\nExiting..\n");
+            exit(1);
+        }
     }
+    for (i = 0; i < *n2; i++)
+    {
+        printf("C2:%d\n", numberArray[i]);
+    }
+
+
     pthread_mutex_unlock(&c2_mutex);
     return NULL;
 }
@@ -49,10 +76,27 @@ void* func2(void *arg){
 
 void* func3(void *arg){
     pthread_mutex_lock(&c3_mutex);
-    for(int i = 0 ; i< 5; i++){
-        printf("c3: %d\n", i);
-        usleep(500000); // every half second
+
+    unsigned long long sum =0;  
+    FILE *myFile;
+    myFile = fopen("somenumbers2.txt", "r");
+     //read file into array
+    int *numberArray =(int*) malloc(sizeof(int)*1000000);
+    int i;
+    int *n3 = (int*)arg;
+    for (i = 0; i < *n3; i++)
+    {
+        fscanf(myFile, "%d", &numberArray[i]);
+        if(numberArray[i]<1 || numberArray[i]>1000000){
+            perror("Number out of bounds.\nExiting..\n");
+            exit(1);
+        }
+        sum += (unsigned long long)numberArray[i];
+
     }
+    printf("C3 sum: %lld \n",sum);
+
+
     pthread_mutex_unlock(&c3_mutex);
     return NULL;    
 }
@@ -69,6 +113,12 @@ int main(int argc,char *argv[]){
     data1 = atoi (argv[1]);
     data2 = atoi (argv[2]);
     data3 = atoi (argv[3]);
+
+    if((data1<25 || data1>1000000 || data2<25 || data2>1000000 || data3<25 || data3>1000000))
+    {
+        perror("Invalid input.\nExiting..\n");
+        exit(1);
+    }
 
     c1 = fork();
     checkError(c1, 'f');
