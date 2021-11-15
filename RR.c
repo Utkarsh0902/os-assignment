@@ -7,10 +7,14 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <stdbool.h>
+#include <sys/time.h>
 
 pthread_mutex_t shm_mutex;
 pthread_mutex_t time_mutex;
-int time_quantum = 10; // Minimum: 10u seconds (for output to work fine)
+int time_quantum = 50; // Minimum: 10u seconds (for output to work fine)
+
+long parent_start;
+struct timeval timecheck;
 
 struct task{
     pid_t pid; // ID of the child process
@@ -77,38 +81,81 @@ void checkError(int id, char proc){
 }
 
 void* func1(void *arg){
-     pthread_mutex_lock(&child[0].task_mutex);
-     printf("c1:hello\n");
-     pthread_mutex_unlock(&child[0].task_mutex);
+    long start, end;
+    struct timeval timecheck;
+    pthread_mutex_lock(&child[0].task_mutex);
+        gettimeofday(&timecheck, NULL);
+        start = (long)timecheck.tv_usec;
+        printf("C1 starts at t = %ldus \n",start-parent_start);
+        unsigned long long sum =0;
+        int *n1 = (int*)arg;
+    pthread_mutex_unlock(&child[0].task_mutex);
+    usleep(1000);
 
-    for(int i = 0 ; i< 10; i++){
-        
+    for(int i=1;i<=*n1;i++){
         pthread_mutex_lock(&child[0].task_mutex);
-        printf("C1: %d\n", i);
-        usleep(time_quantum); // every half second
+            sum += (unsigned long long)i;
         pthread_mutex_unlock(&child[0].task_mutex);
-        usleep(5000);
-    }
-    child[0].isComplete = true;
+        usleep(1000);
+    } 
+
+    pthread_mutex_lock(&child[0].task_mutex);
+        printf("C1 sum: %llu \n",sum);
+        child[0].isComplete = true;
+        gettimeofday(&timecheck, NULL);
+        end = (long)timecheck.tv_usec;
+        printf("C1 ends at t = %ldus \n",end-parent_start);
     pthread_mutex_unlock(&child[0].task_mutex);
     return NULL;
 }
 
 
 void* func2(void *arg){
-    pthread_mutex_lock(&child[1].task_mutex);
-    printf("c2:hello\n");
-    pthread_mutex_unlock(&child[1].task_mutex);
 
-    for(int i = 0 ; i< 10; i++){
+    long start, end;
+    struct timeval timecheck;
+    pthread_mutex_lock(&child[1].task_mutex);
+        gettimeofday(&timecheck, NULL);
+        start = (long)timecheck.tv_usec;
+        printf("C2 starts at t = %ldus \n",start-parent_start);
+        FILE *myFile;
+        myFile = fopen("somenumbers.txt", "r");
+    pthread_mutex_unlock(&child[1].task_mutex);
+    usleep(1000);
+
+    pthread_mutex_lock(&child[1].task_mutex);
+        //read file into array
+        int *numberArray =(int*) malloc(sizeof(int)*1000000), *n2 = (int*)arg;
+    pthread_mutex_unlock(&child[1].task_mutex);
+    usleep(1000);
+    
+    for (int i = 0; i < *n2; i++)
+    {
+        pthread_mutex_lock(&child[1].task_mutex);
+            fscanf(myFile, "%d", &numberArray[i]);
+        pthread_mutex_unlock(&child[1].task_mutex);
+        usleep(1000);
         
         pthread_mutex_lock(&child[1].task_mutex);
-        printf("C2: %d\n", i);
-        usleep(time_quantum); // every half second
+            if(numberArray[i]<1 || numberArray[i]>1000000){
+                perror("Number out of bounds.\nExiting..\n");
+                exit(1);
+            }
         pthread_mutex_unlock(&child[1].task_mutex);
-        usleep(5000);
+        usleep(1000);
+        
     }
-    
+    for (int i = 0; i < *n2; i++){
+        pthread_mutex_lock(&child[1].task_mutex);
+            printf("C2:%d\n", numberArray[i]);
+        pthread_mutex_unlock(&child[1].task_mutex);
+        usleep(1000);
+    }
+
+    pthread_mutex_lock(&child[1].task_mutex);
+    gettimeofday(&timecheck, NULL);
+    end = (long)timecheck.tv_usec;
+    printf("C2 ends at t = %ldus \n",end-parent_start);
     child[1].isComplete = true;
     pthread_mutex_unlock(&child[1].task_mutex);
     return NULL;
@@ -116,18 +163,54 @@ void* func2(void *arg){
 
 
 void* func3(void *arg){
+
+    long start, end;
+    struct timeval timecheck;
     pthread_mutex_lock(&child[2].task_mutex);
-    printf("c3:hello\n");
+        gettimeofday(&timecheck, NULL);
+        start = (long)timecheck.tv_usec;
+        printf("C3 starts at t = %ldus \n",start-parent_start);
+        unsigned long long sum =0;  
     pthread_mutex_unlock(&child[2].task_mutex);
-    for(int i = 0 ; i< 10; i++){
+    usleep(1000);
+
+    pthread_mutex_lock(&child[2].task_mutex);
+        FILE *myFile;
+        myFile = fopen("somenumbers2.txt", "r");
+    pthread_mutex_unlock(&child[2].task_mutex);
+    usleep(1000);
+    
+    pthread_mutex_lock(&child[2].task_mutex);
+        //read file into array
+        int *numberArray =(int*) malloc(sizeof(int)*1000000), *n3 = (int*)arg;
+    pthread_mutex_unlock(&child[2].task_mutex);
+    usleep(1000);
+     
+    for (int i = 0; i < *n3; i++)
+    {
+        pthread_mutex_lock(&child[2].task_mutex);
+            fscanf(myFile, "%d", &numberArray[i]);
+        pthread_mutex_unlock(&child[2].task_mutex);
+        usleep(1000);
         
         pthread_mutex_lock(&child[2].task_mutex);
-        printf("C3: %d\n", i);
-        usleep(time_quantum); // every half second
+            if(numberArray[i]<1 || numberArray[i]>1000000){
+                perror("Number out of bounds.\nExiting..\n");
+                exit(1);
+            }
         pthread_mutex_unlock(&child[2].task_mutex);
-        usleep(5000);
+        usleep(1000);
+
+        pthread_mutex_lock(&child[2].task_mutex);
+            sum += (unsigned long long)numberArray[i];
+        pthread_mutex_unlock(&child[2].task_mutex);
+        usleep(1000);
     }
-    
+    pthread_mutex_lock(&child[2].task_mutex);
+    printf("C3 sum: %lld \n",sum);
+    gettimeofday(&timecheck, NULL);
+    end = (long)timecheck.tv_usec;
+    printf("C3 ends at t = %ldus \n",end-parent_start);
     child[2].isComplete = true;
     pthread_mutex_unlock(&child[2].task_mutex);
     return NULL;    
@@ -147,6 +230,9 @@ int main(int argc,char *argv[]){
     data1 = atoi (argv[1]);
     data2 = atoi (argv[2]);
     data3 = atoi (argv[3]);
+
+    gettimeofday(&timecheck, NULL);
+    parent_start = (long)timecheck.tv_usec;
 
     if((data1<25 || data1>1000000 || data2<25 || data2>1000000 || data3<25 || data3>1000000))
     {
@@ -217,7 +303,7 @@ int main(int argc,char *argv[]){
             pthread_mutex_unlock(&time_mutex);
             usleep(time_quantum);
             strcpy((char*)shmPtr, "stop");
-            usleep(5000);
+            usleep(1000);
             pthread_mutex_lock(&time_mutex);
             if(strcmp((char*)shmPtr,"complete")!= 0){
                 enqueue(&ready_queue, pid_idx);
