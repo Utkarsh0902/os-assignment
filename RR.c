@@ -15,8 +15,11 @@ pthread_cond_t child_cond[3];
 
 int time_quantum = 50; // Minimum: 10u seconds (for output to work fine)
 
-long parent_start;
+unsigned long long  parent_start;
 struct timeval timecheck;
+
+unsigned long long start[3], end[3], waiting[3];
+
 
 struct task{
     pid_t pid; // ID of the child process
@@ -83,12 +86,10 @@ void checkError(int id, char proc){
 }
 
 void* func1(void *arg){
-    long start, end;
     struct timeval timecheck;
     pthread_mutex_lock(&child[0].task_mutex);
     gettimeofday(&timecheck, NULL);
-    start = (long)timecheck.tv_usec;
-    printf("C1 starts at t = %ldus \n",start-parent_start);
+    start[0] = (unsigned long long )timecheck.tv_usec- parent_start;
     unsigned long long sum =0;
     int *n1 = (int*)arg;
     pthread_cond_wait(&child_cond[0], &child[0].task_mutex);
@@ -101,8 +102,7 @@ void* func1(void *arg){
     pthread_cond_wait(&child_cond[0], &child[0].task_mutex);
     printf("C1 sum: %llu \n",sum);
     gettimeofday(&timecheck, NULL);
-    end = (long)timecheck.tv_usec;
-    printf("C1 ends at t = %ldus \n",end-parent_start);
+    end[0] = (unsigned long long)timecheck.tv_usec - parent_start;
     child[0].isComplete = true;
     pthread_mutex_unlock(&child[0].task_mutex);
     return NULL;
@@ -111,13 +111,11 @@ void* func1(void *arg){
 
 void* func2(void *arg){
 
-    long start, end;
     struct timeval timecheck;
     pthread_mutex_lock(&child[1].task_mutex);
 
     gettimeofday(&timecheck, NULL);
-    start = (long)timecheck.tv_usec;
-    printf("C2 starts at t = %ldus \n",start-parent_start);
+    start[1] = (unsigned long long )timecheck.tv_usec - parent_start;
     
     FILE *myFile;
     myFile = fopen("somenumbers.txt", "r");
@@ -150,9 +148,7 @@ void* func2(void *arg){
     pthread_cond_wait(&child_cond[1], &child[1].task_mutex);
 
     gettimeofday(&timecheck, NULL);
-    end = (long)timecheck.tv_usec;
-    printf("C2 ends at t = %ldus \n",end-parent_start);
-
+    end[1] = (unsigned long long)timecheck.tv_usec - parent_start;
 
     child[1].isComplete = true;
     pthread_mutex_unlock(&child[1].task_mutex);
@@ -162,13 +158,11 @@ void* func2(void *arg){
 
 void* func3(void *arg){
 
-    long start, end;
     struct timeval timecheck;
     pthread_mutex_lock(&child[2].task_mutex);
 
     gettimeofday(&timecheck, NULL);
-    start = (long)timecheck.tv_usec;
-    printf("C3 starts at t = %ldus \n",start-parent_start);
+    start[2] = (unsigned long long )timecheck.tv_usec - parent_start;
     unsigned long long sum =0;  
     
     pthread_cond_wait(&child_cond[2], &child[2].task_mutex);
@@ -203,14 +197,75 @@ void* func3(void *arg){
     printf("C3 sum: %lld \n",sum);
 
     gettimeofday(&timecheck, NULL);
-    end = (long)timecheck.tv_usec;
-    printf("C3 ends at t = %ldus \n",end-parent_start);
+    end[2] = (unsigned long long)timecheck.tv_usec - parent_start;
 
     child[2].isComplete = true;
     pthread_mutex_unlock(&child[2].task_mutex);
     return NULL;    
 }
 
+void monitor(int it, int shmid, void* shmPtr, char buf[10], char start_text[10]){
+    pthread_mutex_init(&child[it].task_mutex, NULL);
+    pthread_mutex_lock(&child[it].task_mutex);
+
+
+    struct timeval timecheck;
+    
+
+
+    //  Accessing the shared memory
+    pthread_mutex_lock(&shm_mutex);
+        if((shmid = shmget(2041, 32, 0)) == -1){
+            perror("Error in shmget() in child[it].pid\n");
+            exit(1);
+        }
+        shmPtr = shmat(shmid, 0, 0);
+        if(shmPtr == (char*)-1){
+            perror("Error in shmat() in child\n");
+            exit(2);
+        }
+    pthread_mutex_unlock(&shm_mutex);
+
+
+    // POLLING
+    
+    while(child[it].isComplete == false){
+
+        gettimeofday(&timecheck, NULL);
+        unsigned long long wait_temp = (unsigned long long )timecheck.tv_usec;
+
+        strcpy(buf, (char*)shmPtr);
+        while(strcmp(buf, start_text)!=0){
+            // 2 us polling
+            usleep(2);
+            strcpy(buf, (char*)shmPtr);
+        }
+        // Signal to start work has been recieved
+        gettimeofday(&timecheck, NULL);
+        waiting[it]+= (unsigned long long )timecheck.tv_usec- wait_temp;
+
+        pthread_mutex_lock(&time_mutex);
+        pthread_mutex_unlock(&child[it].task_mutex);
+        pthread_cond_signal(&child_cond[it]);
+
+        // wait for the time quantum to end
+        strcpy(buf, (char*)shmPtr);
+        while(strcmp(buf, "stop")!=0){
+            // 2 us polling
+            usleep(2);
+            strcpy(buf, (char*)shmPtr);
+                pthread_cond_signal(&child_cond[it]); // this signal means that the thread can still work
+        }
+        pthread_mutex_lock(&child[it].task_mutex);
+        pthread_mutex_unlock(&time_mutex);
+    }
+    strcpy((char*)shmPtr, "complete");
+
+    printf("C%d start time:%llu\n", it+1, start[it]);
+    printf("C%d end time:%llu\n",it+1,  end[it]);
+    printf("C%d wait time:%llu\n", it+1, waiting[it]);
+    exit(0); 
+}
 
 int main(int argc,char *argv[]){
     void *shmPtr;
@@ -227,7 +282,10 @@ int main(int argc,char *argv[]){
     data3 = atoi (argv[3]);
 
     gettimeofday(&timecheck, NULL);
-    parent_start = (long)timecheck.tv_usec;
+    parent_start = (unsigned long long)timecheck.tv_usec;
+    waiting[0] = 0;
+    waiting[1] = 0;
+    waiting[2] = 0;
 
     if((data1<25 || data1>1000000 || data2<25 || data2>1000000 || data3<25 || data3>1000000))
     {
@@ -317,148 +375,26 @@ int main(int argc,char *argv[]){
 
     /* ### C1 Process ### */
     if(child[0].pid==0){
-
-        pthread_mutex_init(&child[0].task_mutex, NULL);
-        pthread_mutex_lock(&child[0].task_mutex);
         pthread_create(&child[0].tid,NULL,func1,(void*)&data1);
-
-        //  Accessing the shared memory
-        pthread_mutex_lock(&shm_mutex);
-            if((shmid = shmget(2041, 32, 0)) == -1){
-                perror("Error in shmget() in child[0].pid\n");
-                exit(1);
-            }
-            shmPtr = shmat(shmid, 0, 0);
-            if(shmPtr == (char*)-1){
-                perror("Error in shmat() in child\n");
-                exit(2);
-            }
-        pthread_mutex_unlock(&shm_mutex);
-
-
-        // POLLING
-        while(child[0].isComplete == false){
-            strcpy(buf, (char*)shmPtr);
-            while(strcmp(buf, "c1_start")!=0){
-                // 2 us polling
-                usleep(2);
-                strcpy(buf, (char*)shmPtr);
-            }
-            // Signal to start work has been recieved
-            pthread_mutex_lock(&time_mutex);
-            pthread_mutex_unlock(&child[0].task_mutex);
-            pthread_cond_signal(&child_cond[0]);
-
-            // wait for the time quantum to end
-            strcpy(buf, (char*)shmPtr);
-            while(strcmp(buf, "stop")!=0){
-                // 2 us polling
-                usleep(2);
-                strcpy(buf, (char*)shmPtr);
-                 pthread_cond_signal(&child_cond[0]); // this signal means that the thread can still work
-            }
-            pthread_mutex_lock(&child[0].task_mutex);
-            pthread_mutex_unlock(&time_mutex);
-        }
-        strcpy((char*)shmPtr, "complete");
-        exit(0); 
+        monitor(0,shmid, shmPtr, buf, "c1_start");
+        printf("C1 complete\n");
+        exit(0);
     }
 
     /* ### C2 Process ### */
     if(child[1].pid==0){
-        pthread_mutex_init(&child[1].task_mutex, NULL);
-        pthread_mutex_lock(&child[1].task_mutex);
         pthread_create(&child[1].tid,NULL,func2,(void*)&data2);
-
-        //  Accessing the shared memory
-        pthread_mutex_lock(&shm_mutex);
-            if((shmid = shmget(2041, 32, 0)) == -1){
-                perror("Error in shmget() in child[1].pid\n");
-                exit(1);
-            }
-            shmPtr = shmat(shmid, 0, 0);
-            if(shmPtr == (char*)-1){
-                perror("Error in shmat() in child\n");
-                exit(2);
-            }
-        pthread_mutex_unlock(&shm_mutex);
-
-
-        // POLLING
-        while(child[1].isComplete == false){
-            strcpy(buf, (char*)shmPtr);
-            while(strcmp(buf, "c2_start")!=0){
-                // 2 us polling
-                usleep(2);
-                strcpy(buf, (char*)shmPtr);
-            }
-            // Signal to start work has been recieved
-            pthread_mutex_lock(&time_mutex);
-            pthread_mutex_unlock(&child[1].task_mutex);
-            pthread_cond_signal(&child_cond[1]);
-
-            // wait for the time quantum to end
-            strcpy(buf, (char*)shmPtr);
-            while(strcmp(buf, "stop")!=0){
-                // 2 us polling
-                usleep(2);
-                strcpy(buf, (char*)shmPtr);
-                 pthread_cond_signal(&child_cond[1]); // this signal means that the thread can still work
-            }
-            pthread_mutex_lock(&child[1].task_mutex);
-            pthread_mutex_unlock(&time_mutex);
-        }
-        strcpy((char*)shmPtr, "complete");
+        monitor(1,shmid, shmPtr, buf, "c2_start");
+        printf("C2 complete\n");
         exit(0); 
     }
 
     /* ### C3 Process ### */
     if(child[2].pid==0){
-        pthread_mutex_init(&child[2].task_mutex, NULL);
-        pthread_mutex_lock(&child[2].task_mutex);
         pthread_create(&child[2].tid,NULL,func3,(void*)&data3);
-
-        //  Accessing the shared memory
-        pthread_mutex_lock(&shm_mutex);
-            if((shmid = shmget(2041, 32, 0)) == -1){
-                perror("Error in shmget() in child[2].pid\n");
-                exit(1);
-            }
-            shmPtr = shmat(shmid, 0, 0);
-            if(shmPtr == (char*)-1){
-                perror("Error in shmat() in child\n");
-                exit(2);
-            }
-        pthread_mutex_unlock(&shm_mutex);
-
-
-        // POLLING
-        while(child[2].isComplete == false){
-            strcpy(buf, (char*)shmPtr);
-            while(strcmp(buf, "c3_start")!=0){
-                // 2 us polling
-                usleep(2);
-                strcpy(buf, (char*)shmPtr);
-            }
-            // Signal to start work has been recieved
-            pthread_mutex_lock(&time_mutex);
-            pthread_mutex_unlock(&child[2].task_mutex);
-            pthread_cond_signal(&child_cond[2]);
-
-            // wait for the time quantum to end
-            strcpy(buf, (char*)shmPtr);
-            while(strcmp(buf, "stop")!=0){
-                // 2 us polling
-                usleep(2);
-                strcpy(buf, (char*)shmPtr);
-                 pthread_cond_signal(&child_cond[2]); // this signal means that the thread can still work
-            }
-            pthread_mutex_lock(&child[2].task_mutex);
-            pthread_mutex_unlock(&time_mutex);
-        }
-        strcpy((char*)shmPtr, "complete");
+        monitor(2,shmid, shmPtr, buf, "c3_start");
+        printf("C3 complete\n");
         exit(0); 
     }
-
     return 0;
 }
