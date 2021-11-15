@@ -6,11 +6,17 @@
 #include <pthread.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <sys/time.h>
 
 pthread_mutex_t shm_mutex;
 pthread_mutex_t c1_mutex, c2_mutex, c3_mutex;
 
+long parent_start;
+struct timeval timecheck;
+
 void checkError(int id, char proc){
+
+    
     if(id == -1){
         switch(proc){
             case 'p':
@@ -26,7 +32,15 @@ void checkError(int id, char proc){
 }
 
 void* func1(void *arg){
+
+    long start, end;
+    struct timeval timecheck;
     pthread_mutex_lock(&c1_mutex);
+    
+    gettimeofday(&timecheck, NULL);
+    start = (long)timecheck.tv_usec;
+    printf("C1 starts at t = %ldus \n",start-parent_start);
+    
 
 
     unsigned long long sum =0;
@@ -39,6 +53,9 @@ void* func1(void *arg){
 
     printf("C1 sum: %llu \n",sum);
 
+    gettimeofday(&timecheck, NULL);
+    end = (long)timecheck.tv_usec;
+    printf("C1 ends at t = %ldus \n",end-parent_start);
 
     pthread_mutex_unlock(&c1_mutex);
     return NULL;
@@ -46,7 +63,15 @@ void* func1(void *arg){
 
 
 void* func2(void *arg){
+
+    long start, end;
+    struct timeval timecheck;
     pthread_mutex_lock(&c2_mutex);
+
+    gettimeofday(&timecheck, NULL);
+    start = (long)timecheck.tv_usec;
+    printf("C2 starts at t = %ldus \n",start-parent_start);
+
 
 
     FILE *myFile;
@@ -68,6 +93,9 @@ void* func2(void *arg){
         printf("C2:%d\n", numberArray[i]);
     }
 
+    gettimeofday(&timecheck, NULL);
+    end = (long)timecheck.tv_usec;
+    printf("C2 ends at t = %ldus \n",end-parent_start);
 
     pthread_mutex_unlock(&c2_mutex);
     return NULL;
@@ -75,7 +103,14 @@ void* func2(void *arg){
 
 
 void* func3(void *arg){
+    long start, end;
+    struct timeval timecheck;
     pthread_mutex_lock(&c3_mutex);
+
+    gettimeofday(&timecheck, NULL);
+    start = (long)timecheck.tv_usec;
+    printf("C3 starts at t = %ldus \n",start-parent_start);
+    
 
     unsigned long long sum =0;  
     FILE *myFile;
@@ -96,6 +131,9 @@ void* func3(void *arg){
     }
     printf("C3 sum: %lld \n",sum);
 
+    gettimeofday(&timecheck, NULL);
+    end = (long)timecheck.tv_usec;
+    printf("C3 ends at t = %ldus \n",end-parent_start);
 
     pthread_mutex_unlock(&c3_mutex);
     return NULL;    
@@ -113,6 +151,11 @@ int main(int argc,char *argv[]){
     data1 = atoi (argv[1]);
     data2 = atoi (argv[2]);
     data3 = atoi (argv[3]);
+
+    
+    
+    gettimeofday(&timecheck, NULL);
+    parent_start = (long)timecheck.tv_usec;
 
     if((data1<25 || data1>1000000 || data2<25 || data2>1000000 || data3<25 || data3>1000000))
     {
@@ -156,8 +199,8 @@ int main(int argc,char *argv[]){
         strcpy((char*)shmPtr, "c1_start");
         // busy wait for c1 to be finished
         while(strcmp(buf,"c1_done")!=0){
-            // 5 ms polling
-            usleep(5000);
+            // 2us polling
+            usleep(2);
             strcpy(buf, (char*)shmPtr);
         }
 
@@ -167,8 +210,8 @@ int main(int argc,char *argv[]){
         strcpy((char*)shmPtr, "c2_start");
         // busy wait for c2 to be finished
         while(strcmp(buf,"c2_done")!=0){
-            // 5 ms polling
-            usleep(5000);
+            // 2us polling
+            usleep(2);
             strcpy(buf, (char*)shmPtr);
         }
 
@@ -178,8 +221,8 @@ int main(int argc,char *argv[]){
         strcpy((char*)shmPtr, "c3_start");
         // busy wait for c3 to be finished
         while(strcmp(buf,"c3_done")!=0){
-            // 5 ms polling
-            usleep(5000);
+            // 2us polling
+            usleep(2);
             strcpy(buf, (char*)shmPtr);
         }
 
@@ -214,8 +257,8 @@ int main(int argc,char *argv[]){
         // POLLING
         strcpy(buf, (char*)shmPtr);
         while(strcmp(buf, "c1_start")!=0){
-            // 5 ms polling
-            usleep(5000);
+            // 2us polling
+            usleep(2);
             strcpy(buf, (char*)shmPtr);
         }
 
@@ -232,7 +275,7 @@ int main(int argc,char *argv[]){
     if(c2==0){
         pthread_mutex_init(&c2_mutex, NULL);
         pthread_mutex_lock(&c2_mutex);
-        pthread_create(&tid1,NULL,func2,(void*)&data1);
+        pthread_create(&tid2,NULL,func2,(void*)&data2);
 
         //  Accessing the shared memory
         pthread_mutex_lock(&shm_mutex);
@@ -251,14 +294,14 @@ int main(int argc,char *argv[]){
         // POLLING
         strcpy(buf, (char*)shmPtr);
         while(strcmp(buf, "c2_start")!=0){
-            // 5 ms polling
-            usleep(5000);
+            // 2us polling
+            usleep(2);
             strcpy(buf, (char*)shmPtr);
         }
 
         // Signal to start work has been recieved
         pthread_mutex_unlock(&c2_mutex);
-        pthread_join(tid1, NULL);
+        pthread_join(tid2, NULL);
 
         // now the thread is done working
         strcpy((char*)shmPtr, "c2_done");
@@ -269,7 +312,7 @@ int main(int argc,char *argv[]){
     if(c3==0){
         pthread_mutex_init(&c3_mutex, NULL);
         pthread_mutex_lock(&c3_mutex);
-        pthread_create(&tid1,NULL,func3,(void*)&data1);
+        pthread_create(&tid3,NULL,func3,(void*)&data3);
 
         //  Accessing the shared memory
         pthread_mutex_lock(&shm_mutex);
@@ -288,14 +331,14 @@ int main(int argc,char *argv[]){
         // POLLING
         strcpy(buf, (char*)shmPtr);
         while(strcmp(buf, "c3_start")!=0){
-            // 5 ms polling
-            usleep(5000);
+            // 2us polling
+            usleep(2);
             strcpy(buf, (char*)shmPtr);
         }
 
         // Signal to start work has been recieved
         pthread_mutex_unlock(&c3_mutex);
-        pthread_join(tid1, NULL);
+        pthread_join(tid3, NULL);
 
         // now the thread is done working
         strcpy((char*)shmPtr, "c3_done");
