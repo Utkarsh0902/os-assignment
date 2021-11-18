@@ -1,0 +1,1 @@
+The tables and graphs indicate the variation of Turn Around Time and Waiting Time with increasing batch size for all the three processes C1, C2 and C3, according to the chosen scheduling.
