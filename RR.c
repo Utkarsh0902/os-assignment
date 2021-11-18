@@ -13,7 +13,7 @@ pthread_mutex_t shm_mutex;
 pthread_mutex_t time_mutex;
 pthread_cond_t child_cond[3];
 
-int time_quantum = 50; // Minimum: 10u seconds (for output to work fine)
+int time_quantum;// Minimum: 10u seconds (for output to work fine)
 
 unsigned long long  parent_start;
 struct timeval timecheck;
@@ -26,7 +26,6 @@ struct task{
     pthread_t tid; // ID of the worker thread
     pthread_mutex_t task_mutex; // Mutex used in the worker thread
     bool isComplete; // To check if the task is completed.
-    // Add structures for timing data.
 };
 
 struct task child[3];
@@ -232,7 +231,7 @@ void monitor(int it, int shmid, void* shmPtr, char buf[10], char start_text[10])
     while(child[it].isComplete == false){
 
         gettimeofday(&timecheck, NULL);
-        unsigned long long wait_temp = (unsigned long long )timecheck.tv_usec;
+        unsigned long long wait_temp = (unsigned long long )timecheck.tv_sec;
 
         strcpy(buf, (char*)shmPtr);
         while(strcmp(buf, start_text)!=0){
@@ -242,7 +241,7 @@ void monitor(int it, int shmid, void* shmPtr, char buf[10], char start_text[10])
         }
         // Signal to start work has been recieved
         gettimeofday(&timecheck, NULL);
-        waiting[it]+= (unsigned long long )timecheck.tv_usec- wait_temp;
+        waiting[it]+= (unsigned long long )timecheck.tv_sec- wait_temp - parent_start*1000000;
 
         pthread_mutex_lock(&time_mutex);
         pthread_mutex_unlock(&child[it].task_mutex);
@@ -280,6 +279,7 @@ int main(int argc,char *argv[]){
     data1 = atoi (argv[1]);
     data2 = atoi (argv[2]);
     data3 = atoi (argv[3]);
+    time_quantum = atoi (argv[4]);
 
     gettimeofday(&timecheck, NULL);
     parent_start = (unsigned long long)timecheck.tv_usec;
